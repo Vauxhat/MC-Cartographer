@@ -1,2 +1,2 @@
 # MC-Cartographer
-A console based Minecraft map data converter written in c++.
+A console based Minecraft map item data converter written in c++.
