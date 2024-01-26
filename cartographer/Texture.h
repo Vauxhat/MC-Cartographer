@@ -45,6 +45,9 @@ namespace Vaux
 		void Set(const int& x, const int& y, const Vector4i& colour);
 		void Set(const Vector2i& uv, const Vector4i& colour);
 
+		void SetA(const int& x, const int& y, const int& colour);
+		void SetA(const Vector2i& uv, const int& colour);
+
 		// Sampler function.
 		const Vector4i Sample(const float& x, const float& y, const Sampling& sampling = Sampling::POINT, const Wrapping& wrapping = Wrapping::CLAMP) const;
 		const Vector4i Sample(const Vector2f& uv, const Sampling& sampling = Sampling::POINT, const Wrapping& wrapping = Wrapping::CLAMP) const;

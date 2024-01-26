@@ -12,7 +12,7 @@ MCMapData::MCMapData(const int& width, const int& height) : width_(width), heigh
     for (int i = 0; i < width_ * height_; i++)
     {
         // Initialise colour vector.
-        colourID_[i] = 0;
+        colourID_.push_back(0);
     }
 }
 MCMapData::MCMapData(const char* filename, const int& width, const int& height)

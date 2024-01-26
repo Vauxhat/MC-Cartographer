@@ -51,7 +51,10 @@ const int& Texture2D::GetHeight() const
 // Returns colour of current pixel.
 const Vector4i& Texture2D::Get(const int& x, const int& y) const
 {
-	return pixel_[x + y * width_];
+	int i = clamp(x, 0, width_ - 1);
+	int j = clamp(y, 0, height_ - 1);
+
+	return pixel_[i + j * width_];
 }
 // Returns colour of current pixel.
 const Vector4i& Texture2D::Get(const Vector2i& uv) const
@@ -62,12 +65,29 @@ const Vector4i& Texture2D::Get(const Vector2i& uv) const
 // Sets colour of current pixel.
 void Texture2D::Set(const int& x, const int& y, const Vector4i& colour)
 {
-	pixel_[x + y * width_] = colour;
+	int i = clamp(x, 0, width_ - 1);
+	int j = clamp(y, 0, height_ - 1);
+
+	pixel_[i + j * width_] = colour;
 }
 // Sets colour of current pixel.
 void Texture2D::Set(const Vector2i& uv, const Vector4i& colour)
 {
 	Set(uv.x, uv.y, colour);
+}
+
+// Sets alpha of current pixel.
+void Texture2D::SetA(const int& x, const int& y, const int& colour)
+{
+	int i = clamp(x, 0, width_ - 1);
+	int j = clamp(y, 0, height_ - 1);
+
+	pixel_[i + j * width_].w = colour;
+}
+// Sets alpha of current pixel.
+void Texture2D::SetA(const Vector2i& uv, const int& colour)
+{
+	SetA(uv.x, uv.y, colour);
 }
 
 // Returns a sample from the texture using a given interpolation method.

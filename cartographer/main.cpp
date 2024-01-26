@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 #include <filesystem>
+#include <cmath>
 
 #include "Vector3.h"
 #include "Texture.h"
@@ -36,9 +37,15 @@ const float bayerMatrix[]
     0.996094, 0.496094, 0.871094, 0.371094, 0.964844, 0.464844, 0.839844, 0.339844, 0.988281, 0.488281, 0.863281, 0.363281, 0.957031, 0.457031, 0.832031, 0.332031
 };
 
+enum class DitherType
+{
+    ORDERED,
+    FLOYD_STEINBERG
+};
+
 // Function pre declaration.
 const bool LoadPaletteFromFile(const char* filename, vector<Vector3i>* output);
-const bool ConvertImageToMap(const char* inputPath, const char* outputPath, const vector<Vector3i>& paletteData);
+const bool ConvertImageToMap(const char* inputPath, const char* outputPath, const vector<Vector3i>& paletteData, DitherType dithering = DitherType::ORDERED);
 const bool ConvertMapToImage(const char* inputPath, const char* outputPath, const vector<Vector3i>& paletteData);
 
 int main(int argc, char* argv[])
@@ -57,9 +64,10 @@ int main(int argc, char* argv[])
         // Output text.
         cout << "Please enter file name and location (e.g. C:/image.png):\n";
 
-        // Recieve input.
-        filesystem::path inputPath;
-        cin >> inputPath;
+        // Get file path.
+        string stringPath;
+        getline(cin, stringPath);
+        filesystem::path inputPath = stringPath.c_str();
 
         // Store file name, remove extension.
         string filename = inputPath.filename().string();
@@ -68,12 +76,19 @@ int main(int argc, char* argv[])
         // Check if input is a binary file (map data).
         if (inputPath.has_extension())
         {
+            // Output text.
+            cout << "Enter 0 for ordered dithering or 1 for Floyd-Steinberg dithering:\n";
+
+            // Get dithering mode.
+            int dithering;
+            cin >> dithering;
+
             // Generate output path.
             string outputPath(exeDirectory.string() + "\\" + filename + "_map");
 
             // Input has a file type, attempt map conversion.
             MCMapData outputMap;
-            if (!ConvertImageToMap(inputPath.string().c_str(), outputPath.c_str(), paletteData))
+            if (!ConvertImageToMap(inputPath.string().c_str(), outputPath.c_str(), paletteData, DitherType(dithering)))
                 return 1;
         }
         else
@@ -105,7 +120,7 @@ int main(int argc, char* argv[])
 
                 // Input has a file type, attempt map conversion.
                 MCMapData outputMap;
-                if (!ConvertImageToMap(argv[i], outputPath.c_str(), paletteData))
+                if (!ConvertImageToMap(argv[i], outputPath.c_str(), paletteData, DitherType::FLOYD_STEINBERG))
                     continue;
             }
             else
@@ -175,7 +190,7 @@ const bool LoadPaletteFromFile(const char* filename, vector<Vector3i>* output)
     return true;
 }
 
-const bool ConvertImageToMap(const char* inputFile, const char* outputFile, const vector<Vector3i>& paletteData)
+const bool ConvertImageToMap(const char* inputFile, const char* outputFile, const vector<Vector3i>& paletteData, DitherType dithering)
 {
     // Load image.
     Texture2D inputTexture;
@@ -203,49 +218,126 @@ const bool ConvertImageToMap(const char* inputFile, const char* outputFile, cons
     // Create output map.
     MCMapData outputMap(inputTexture.GetWidth(), inputTexture.GetHeight());
 
-    // Convert image to map data.
-    for (int y = 0; y < outputMap.GetHeight(); y++)
+    // Select dithering method.
+    switch (dithering)
     {
-        for (int x = 0; x < outputMap.GetWidth(); x++)
+    case DitherType::FLOYD_STEINBERG:
+    {
+        // Loop through each pixel in the texture.
+        for (int y = 0; y < outputMap.GetHeight(); y++)
         {
-            // Get current pixel from texture.
-            Vector4i sampleColour = inputTexture.Get(x, y);
-
-            // Check for transparency.
-            if (sampleColour.w < 127)
+            for (int x = 0; x < outputMap.GetWidth(); x++)
             {
-                // Set colour ID to transparent.
-                outputMap.Set(x, y, 0);
-            }
-            else
-            {
-                // Apply dither matrix.
-                int dither = static_cast<int>((255.f / 8.f) * (bayerMatrix[x % bayerWidth + (y % bayerHeight) * bayerWidth] - 0.5f));
-                sampleColour = sampleColour + Vector4i(dither, dither, dither, 0);
+                // Get current pixel from texture.
+                Vector4i sampleColour = inputTexture.Get(x, y);
 
-                // Initialise nearest variables.
-                int nearest = 4;
-                int nearestDistance = Vector4i::LengthSqr(Vector4i(paletteData[nearest], 255) - sampleColour);
+                // Calculate nearest alpha using 1 bit colour, determine quantisation error.
+                int nearestAlpha = static_cast<int>(roundf((float)sampleColour.w / 255.f) * 255);
+                int alphaQuantisation = sampleColour.w - nearestAlpha;
 
-                // Loop through each colour in palette skipping the first five entries (0-3 is transprency, 4 was used above).
-                for (unsigned int i = 5; i < paletteData.size(); i++)
+                // Spread quanisation error to surrounding pixels.
+                inputTexture.SetA(x + 1, y, inputTexture.Get(x + 1, y).w + alphaQuantisation * 7.0f / 16.0f);
+                inputTexture.SetA(x - 1, y + 1, inputTexture.Get(x - 1, y + 1).w + alphaQuantisation * 3.0f / 16.0f);
+                inputTexture.SetA(x, y + 1, inputTexture.Get(x, y + 1).w + alphaQuantisation * 5.0f / 16.0f);
+                inputTexture.SetA(x + 1, y + 1, inputTexture.Get(x + 1, y + 1).w + alphaQuantisation * 1.0f / 16.0f);
+
+                // Check if pixel is transparent.
+                if (nearestAlpha == 0)
                 {
-                    // Calculate distance to sample colour, avoid sqrt calculation.
-                    int distance = Vector4i::LengthSqr(Vector4i(paletteData[i], 255) - sampleColour);
-
-                    // Check if colour is closer than nearest.
-                    if (distance < nearestDistance)
-                    {
-                        // Update nearest colour.
-                        nearest = i;
-                        nearestDistance = distance;
-                    }
+                    // Set colour ID to transparent.
+                    outputMap.Set(x, y, 0);
                 }
+                else
+                {
+                    // Initialise nearest variables.
+                    int nearest = 4;
+                    int nearestDistance = Vector3i::LengthSqr(paletteData[nearest] - Vector3i(sampleColour.x, sampleColour.y, sampleColour.z));
 
-                // Store nearest ID in output map.
-                outputMap.Set(x, y, nearest);
+                    // Loop through each colour in palette skipping the first five entries (0-3 is transprency, 4 was used above).
+                    for (unsigned int i = 5; i < paletteData.size(); i++)
+                    {
+                        // Calculate distance to sample colour, avoid sqrt calculation.
+                        int distance = Vector3i::LengthSqr(paletteData[i] - Vector3i(sampleColour.x, sampleColour.y, sampleColour.z));
+
+                        // Check if colour is closer than nearest.
+                        if (distance < nearestDistance)
+                        {
+                            // Update nearest colour.
+                            nearest = i;
+                            nearestDistance = distance;
+                        }
+                    }
+
+                    // Store nearest ID in output map.
+                    outputMap.Set(x, y, nearest);
+
+                    // Calculate quantisation error.
+                    Vector3i quantisation = Vector3i(sampleColour.x, sampleColour.y, sampleColour.z) - paletteData[nearest];
+
+                    // Spread quanisation error to surrounding pixels.
+                    inputTexture.Set(x + 1, y, inputTexture.Get(x + 1, y) + Vector4i(quantisation, 0) * 7.0f / 16.0f);
+                    inputTexture.Set(x - 1, y + 1, inputTexture.Get(x - 1, y + 1) + Vector4i(quantisation, 0) * 3.0f / 16.0f);
+                    inputTexture.Set(x, y + 1, inputTexture.Get(x, y + 1) + Vector4i(quantisation, 0) * 5.0f / 16.0f);
+                    inputTexture.Set(x + 1, y + 1, inputTexture.Get(x + 1, y + 1) + Vector4i(quantisation, 0) * 1.0f / 16.0f);
+                }
             }
         }
+
+        break;
+    }
+    default:
+    {
+        // Loop through each pixel in the texture.
+        for (int y = 0; y < outputMap.GetHeight(); y++)
+        {
+            for (int x = 0; x < outputMap.GetWidth(); x++)
+            {
+                // Get current pixel from texture.
+                Vector4i sampleColour = inputTexture.Get(x, y);
+
+                // Apply dither matrix to alpha using 1 bit colour.
+                float alphaDither = 255.f * (bayerMatrix[x % bayerWidth + (y % bayerHeight) * bayerWidth] - 0.5f);
+                int alpha = static_cast<int>(roundf(((float)sampleColour.w + alphaDither) / 255.f));
+
+                // Check for transparency. Ordered sorting doesn't go to zero alpha, check sample colour as a workaround.
+                if (sampleColour.w == 0 || alpha == 0)
+                {
+                    // Set colour ID to transparent.
+                    outputMap.Set(x, y, 0);
+                }
+                else
+                {
+                    // Apply dither matrix to RGB using map colour.
+                    int colourDither = static_cast<int>((255.f / 8.f) * (bayerMatrix[x % bayerWidth + (y % bayerHeight) * bayerWidth] - 0.5f));
+                    sampleColour = sampleColour + Vector4i(colourDither, colourDither, colourDither, 0);
+
+                    // Initialise nearest variables.
+                    int nearest = 4;
+                    int nearestDistance = Vector3i::LengthSqr(paletteData[nearest] - Vector3i(sampleColour.x, sampleColour.y, sampleColour.z));
+
+                    // Loop through each colour in palette skipping the first five entries (0-3 is transprency, 4 was used above).
+                    for (unsigned int i = 5; i < paletteData.size(); i++)
+                    {
+                        // Calculate distance to sample colour, avoid sqrt calculation.
+                        int distance = Vector3i::LengthSqr(paletteData[i] - Vector3i(sampleColour.x, sampleColour.y, sampleColour.z));
+
+                        // Check if colour is closer than nearest.
+                        if (distance < nearestDistance)
+                        {
+                            // Update nearest colour.
+                            nearest = i;
+                            nearestDistance = distance;
+                        }
+                    }
+
+                    // Store nearest ID in output map.
+                    outputMap.Set(x, y, nearest);
+                }
+            }
+        }
+
+        break;
+    }
     }
 
     // Save map data to file.
