@@ -172,7 +172,7 @@ const Vector4i Texture2D::Sample(const Vector2f& uv, const Sampling& sampling, c
 }
 
 // Resizes current texture to given dimensions. Texture will be interpolated using sampling.
-void Texture2D::Resize(const int& width, const int& height)
+void Texture2D::Resize(const int& width, const int& height, const Sampling& sampling)
 {
 	// Check if texture size is changed.
 	if ((width != width_) || (height != height_))
@@ -186,20 +186,58 @@ void Texture2D::Resize(const int& width, const int& height)
 		{
 			for (int x = 0; x < width; x++)
 			{
-				// Calculate relative sample position for current pixel.
-				float sampleX = float(x) * float(width_) / float(width);
-				float sampleY = float(y) * float(height_) / float(height);
+				switch (sampling)
+				{
+				default: // Sampling::BILINEAR
+				{
+					// Calculate relative position of sample.
+					float sampleX = float(x) * float(width_) / float(width);
+					float sampleY = float(y) * float(height_) / float(height);
 
-				float offset = 1.f;
+					// Sample position using bilinear filtering.
+					pixel.push_back(Sample(sampleX, sampleY));
 
-				// Take multiple samples from the image at offsets.
-				Vector4i a = Sample(sampleX - offset, sampleY + offset, Sampling::BILINEAR, Wrapping::CLAMP);
-				Vector4i b = Sample(sampleX + offset, sampleY + offset, Sampling::BILINEAR, Wrapping::CLAMP);
-				Vector4i c = Sample(sampleX - offset, sampleY - offset, Sampling::BILINEAR, Wrapping::CLAMP);
-				Vector4i d = Sample(sampleX - offset, sampleY - offset, Sampling::BILINEAR, Wrapping::CLAMP);
+					break;
+				}
+				case Sampling::SUPERSAMPLING:
+				{
+					// Set number of samples for super sampling.
+					int xDiv = 8;
+					int yDiv = 8;
 
-				// Average sampled colours, store in texture.
-				pixel.push_back((a + b + c + d) / 4.f);
+					// Calculate the distance between samples.
+					float xStride = (1.0f / (float)xDiv) * 0.5f;
+					float yStride = (1.0f / (float)yDiv) * 0.5f;
+
+					// Initialise sample.
+					Vector4i sample = Vector4i(0, 0, 0, 0);
+
+					// Loop for each sub sample that makes up the pixel.
+					for (int j = 0; j < yDiv; j++)
+					{
+						for (int i = 0; i < xDiv; i++)
+						{
+							// Calculate sample position.
+							float sampleX = (float(x) + xStride * i + xStride) * float(width_) / float(width);
+							float sampleY = (float(y) + yStride * j + yStride) * float(height_) / float(height);
+
+							// Don't sample beyond the image.
+							if (sampleX < 0 || sampleX >= width_ || sampleY < 0 || sampleY >= height_)
+							{
+								continue;
+							}
+
+							// Add sub-sample to total.
+							sample += Sample(sampleX, sampleY, Sampling::BILINEAR, Wrapping::CLAMP);
+						}
+					}
+
+					// Average sampled colours, store in texture.
+					pixel.push_back(sample / (xDiv * yDiv));
+
+					break;
+				}
+				}
 			}
 		}
 
@@ -328,7 +366,7 @@ const bool Texture2D::SaveToFile(const char* filename) const
 			}
 
 			// Write data to png.
-			stbi_write_png(filename, width_, height_, channels_, memblock, 0);
+			stbi_write_png(filename, width_, height_, 4, memblock, 0);
 		}
 		else
 		{

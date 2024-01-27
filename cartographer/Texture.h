@@ -14,7 +14,8 @@ namespace Vaux
 		enum class Sampling
 		{
 			POINT,
-			BILINEAR
+			BILINEAR,
+			SUPERSAMPLING
 		};
 
 		enum class Wrapping
@@ -53,7 +54,7 @@ namespace Vaux
 		const Vector4i Sample(const Vector2f& uv, const Sampling& sampling = Sampling::POINT, const Wrapping& wrapping = Wrapping::CLAMP) const;
 
 		// Resize function.
-		void Resize(const int& width, const int& height);
+		void Resize(const int& width, const int& height, const Sampling& sampling = Sampling::SUPERSAMPLING);
 		void ResizeCanvas(const int& width, const int& height);
 
 		// File functions.
